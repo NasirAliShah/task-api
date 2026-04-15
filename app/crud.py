@@ -4,8 +4,9 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.models import TaskCreate, TaskUpdate, TaskResponse
 
-async def create_task(db: AsyncIOMotorDatabase, task: TaskCreate) -> TaskResponse:
+async def create_task(db: AsyncIOMotorDatabase, task: TaskCreate, user_id: str) -> TaskResponse:
     task_dict = task.model_dump()
+    task_dict["user_id"] = ObjectId(user_id)
     task_dict["created_at"] = datetime.utcnow()
     task_dict["updated_at"] = datetime.utcnow()
     
@@ -21,9 +22,9 @@ async def create_task(db: AsyncIOMotorDatabase, task: TaskCreate) -> TaskRespons
         updated_at=created_task["updated_at"]
     )
 
-async def get_tasks(db: AsyncIOMotorDatabase, skip: int = 0, limit: int = 100) -> List[TaskResponse]:
+async def get_tasks(db: AsyncIOMotorDatabase, user_id: str, skip: int = 0, limit: int = 100) -> List[TaskResponse]:
     tasks = []
-    cursor = db.tasks.find().skip(skip).limit(limit).sort("created_at", -1)
+    cursor = db.tasks.find({"user_id": ObjectId(user_id)}).skip(skip).limit(limit).sort("created_at", -1)
     
     async for task in cursor:
         tasks.append(TaskResponse(
@@ -37,11 +38,11 @@ async def get_tasks(db: AsyncIOMotorDatabase, skip: int = 0, limit: int = 100) -
     
     return tasks
 
-async def get_task(db: AsyncIOMotorDatabase, task_id: str) -> Optional[TaskResponse]:
+async def get_task(db: AsyncIOMotorDatabase, task_id: str, user_id: str) -> Optional[TaskResponse]:
     if not ObjectId.is_valid(task_id):
         return None
     
-    task = await db.tasks.find_one({"_id": ObjectId(task_id)})
+    task = await db.tasks.find_one({"_id": ObjectId(task_id), "user_id": ObjectId(user_id)})
     
     if task:
         return TaskResponse(
@@ -55,31 +56,31 @@ async def get_task(db: AsyncIOMotorDatabase, task_id: str) -> Optional[TaskRespo
     
     return None
 
-async def update_task(db: AsyncIOMotorDatabase, task_id: str, task_update: TaskUpdate) -> Optional[TaskResponse]:
+async def update_task(db: AsyncIOMotorDatabase, task_id: str, task_update: TaskUpdate, user_id: str) -> Optional[TaskResponse]:
     if not ObjectId.is_valid(task_id):
         return None
     
     update_data = {k: v for k, v in task_update.model_dump(exclude_unset=True).items() if v is not None}
     
     if not update_data:
-        return await get_task(db, task_id)
+        return await get_task(db, task_id, user_id)
     
     update_data["updated_at"] = datetime.utcnow()
     
     result = await db.tasks.update_one(
-        {"_id": ObjectId(task_id)},
+        {"_id": ObjectId(task_id), "user_id": ObjectId(user_id)},
         {"$set": update_data}
     )
     
     if result.modified_count == 0:
         return None
     
-    return await get_task(db, task_id)
+    return await get_task(db, task_id, user_id)
 
-async def delete_task(db: AsyncIOMotorDatabase, task_id: str) -> bool:
+async def delete_task(db: AsyncIOMotorDatabase, task_id: str, user_id: str) -> bool:
     if not ObjectId.is_valid(task_id):
         return False
     
-    result = await db.tasks.delete_one({"_id": ObjectId(task_id)})
+    result = await db.tasks.delete_one({"_id": ObjectId(task_id), "user_id": ObjectId(user_id)})
     
     return result.deleted_count > 0
